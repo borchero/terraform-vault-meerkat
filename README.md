@@ -20,7 +20,7 @@ openssl dhparam -out dh.pem 2048
 openvpn --genkey --secret ta.key
 
 # Create v2 stores
-export KV_STORE=meerkat/kv
+export KV_STORE=kv/meerkat
 vault secrets enable -version=2 -path ${KV_STORE} kv
 
 # Add generated secrets
@@ -31,7 +31,7 @@ cat ta.key | vault kv put ${KV_STORE}/tls-auth value=-
 rm dh.pem ta.key
 ```
 
-Note that the `KV_STORE` variable needs to match the `vault_kv_store` variable exposed by this
+Note that the `KV_STORE` variable needs to match the `vault_kv_path` variable expected by this
 module.
 
 ## Components
@@ -39,5 +39,4 @@ module.
 These Terraform configurations deploy a number of components, namely:
 
 - It establishes a secure PKI to issue server and client certificates
-- It sets up Kubernetes roles and policies for Meerkat's OpenVPN component and API
-- It sets up Postgres role for Meerkat's API
+- It creates policies for the VPN and API component to consume the PKI and the KV store
