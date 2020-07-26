@@ -1,18 +1,9 @@
-################
-### PROVIDER ###
-################
-
-provider "vault" {
-  address = var.local_vault_address
-}
-
-#################
-### PKI MOUNT ###
-#################
+#--------------------------------------------------------------------------------------------------
+# PKI MOUNT
 
 resource "vault_mount" "pki" {
   type = "pki"
-  path = var.vault_pki
+  path = var.vault_pki_path
 
   default_lease_ttl_seconds = 63072000  # 2 years
   max_lease_ttl_seconds     = 315360000 # 10 years
@@ -22,7 +13,7 @@ resource "vault_pki_secret_backend_root_cert" "pki" {
   backend = vault_mount.pki.path
 
   type               = "internal"
-  common_name        = var.common_name
+  common_name        = var.pki_common_name
   ttl                = "315360000" # 10 years
   format             = "pem"
   private_key_format = "der"
@@ -31,10 +22,10 @@ resource "vault_pki_secret_backend_root_cert" "pki" {
 
   exclude_cn_from_sans = false
 
-  country      = var.country
-  locality     = var.locality
-  organization = var.organization
-  ou           = var.organization_unit
+  country      = var.pki_country
+  locality     = var.pki_locality
+  organization = var.pki_organization
+  ou           = var.pki_organization_unit
 }
 
 resource "vault_pki_secret_backend_config_urls" "pki" {
@@ -48,9 +39,8 @@ resource "vault_pki_secret_backend_config_urls" "pki" {
   ]
 }
 
-#################
-### PKI ROLES ###
-#################
+#--------------------------------------------------------------------------------------------------
+# PKI ROLES
 
 resource "vault_pki_secret_backend_role" "server" {
   backend = vault_mount.pki.path
@@ -74,17 +64,17 @@ resource "vault_pki_secret_backend_role" "server" {
   code_signing_flag     = false
   email_protection_flag = false
   key_usage = [
-    "digitalSignature",
-    "keyAgreement",
-    "keyEncipherment"
+    "DigitalSignature",
+    "KeyAgreement",
+    "KeyEncipherment"
   ]
   ext_key_usage = [
     "TLS Web Server Authentication"
   ]
 
-  country      = [var.country]
-  locality     = [var.locality]
-  organization = [var.organization]
+  country      = [var.pki_country]
+  locality     = [var.pki_locality]
+  organization = [var.pki_organization]
 }
 
 resource "vault_pki_secret_backend_role" "client" {
@@ -109,108 +99,58 @@ resource "vault_pki_secret_backend_role" "client" {
   code_signing_flag     = false
   email_protection_flag = false
   key_usage = [
-    "digitalSignature",
-    "keyAgreement",
-    "keyEncipherment"
+    "DigitalSignature",
+    "KeyAgreement",
+    "KeyEncipherment"
   ]
   ext_key_usage = [
     "TLS Web Client Authentication"
   ]
 
-  country      = [var.country]
-  locality     = [var.locality]
-  organization = [var.organization]
+  country      = [var.pki_country]
+  locality     = [var.pki_locality]
+  organization = [var.pki_organization]
 }
 
-#####################
-### DATABASE ROLE ###
-#####################
-
-resource "vault_database_secret_backend_role" "api" {
-  name    = var.postgres_role
-  backend = var.postgres_vault_path
-  db_name = var.postgres_database
-
-  creation_statements = [
-    "CREATE ROLE \"{{name}}\" WITH LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}';",
-    "GRANT * ON ALL TABLES IN SCHEMA ${var.postgres_schema} TO \"{{name}}\";"
-  ]
-
-  default_ttl = 3600
-  max_ttl     = 86400
-}
-
-########################
-### KUBERNETES ROLES ###
-########################
-
-resource "vault_kubernetes_auth_backend_role" "vpn" {
-  backend   = var.vault_kubernetes_auth
-  role_name = var.vault_role_vpn
-
-  bound_service_account_names      = [var.kubernetes_sa_vpn]
-  bound_service_account_namespaces = [var.kubernetes_namespace]
-
-  token_ttl      = 3600
-  token_policies = ["default", vault_policy.vpn.name]
-}
-
-resource "vault_kubernetes_auth_backend_role" "api" {
-  backend   = var.vault_kubernetes_auth
-  role_name = var.vault_role_api
-
-  bound_service_account_names      = [var.kubernetes_sa_api]
-  bound_service_account_namespaces = [var.kubernetes_namespace]
-
-  token_ttl      = 3600
-  token_policies = ["default", vault_policy.api.name]
-}
-
-################
-### POLICIES ###
-################
+#--------------------------------------------------------------------------------------------------
+# POLICIES
 
 resource "vault_policy" "vpn" {
   name   = "${var.vault_policy_prefix}.vpn"
-  policy = <<EOT
-# Allow reading shared keys (DH params and TLS Auth)
-path "${var.vault_kv_store}" {
-  capabilities = ["read"]
-}
+  policy = <<-EOT
+    # Allow reading shared keys (DH params and TLS Auth)
+    path "${var.vault_kv_path}/*" {
+      capabilities = ["read"]
+    }
 
-# Allow reading the CRL
-path "${var.vault_pki}/crl/pem" {
-  capabilities = ["read"]
-}
+    # Allow reading the CRL
+    path "${vault_mount.pki.path}/crl/pem" {
+      capabilities = ["read"]
+    }
 
-# Allow issuing server certificates
-path "${var.vault_pki}/issue/server" {
-  capabilities = ["read", "create", "update"]
-}
-EOT
+    # Allow issuing server certificates
+    path "${vault_mount.pki.path}/issue/server" {
+      capabilities = ["read", "create", "update"]
+    }
+  EOT
 }
 
 resource "vault_policy" "api" {
   name   = "${var.vault_policy_prefix}.api"
-  policy = <<EOT
-# Allow reading shared TLS Auth
-path "${var.vault_kv_store}/tls-auth" {
-  capabilities = ["read"]
-}
+  policy = <<-EOT
+    # Allow reading shared TLS Auth
+    path "${var.vault_kv_path}/tls-auth" {
+      capabilities = ["read"]
+    }
 
-# Allow issuing client certificates
-path "${var.vault_pki}/issue/client" {
-  capabilities = ["read", "create", "update"]
-}
+    # Allow issuing client certificates
+    path "${vault_mount.pki.path}/issue/client" {
+      capabilities = ["read", "create", "update"]
+    }
 
-# Allow revoking certificates
-path "${var.vault_pki}/revoke" {
-  capabilities = ["read", "create", "update"]
-}
-
-# Allow accessing the database with the configured role
-path "${var.postgres_vault_path}/creds/${var.postgres_role}" {
-  capabilities = ["read"]
-}
-EOT
+    # Allow revoking certificates
+    path "${vault_mount.pki.path}/revoke" {
+      capabilities = ["read", "create", "update"]
+    }
+  EOT
 }
