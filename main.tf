@@ -142,6 +142,9 @@ resource "vault_policy" "api" {
     path "${var.vault_kv_path}/tls-auth" {
       capabilities = ["read"]
     }
+    path "${var.vault_kv_path}/data/tls-auth" {
+      capabilities = ["read"]
+    }
 
     # Allow issuing client certificates
     path "${vault_mount.pki.path}/issue/client" {
