@@ -157,3 +157,13 @@ resource "vault_policy" "api" {
     }
   EOT
 }
+
+resource "vault_policy" "vpn_cron" {
+  name   = "${var.vault_policy_prefix}.vpn-cron"
+  policy = <<-EOT
+    # Allow rotating the CRL
+    path "${vault_mount.pki.path}/crl/rotate" {
+      capabilities = ["read"]
+    }
+  EOT
+}
